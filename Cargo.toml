@@ -1,7 +1,15 @@
 [package]
 name = "coffee_backend"
 version = "0.1.0"
+authors = ["Zac Woll <zacwoll@gmail.com>"]
 edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "coffee_backend"
 
 [dependencies]
 anyhow = "1.0.95"
