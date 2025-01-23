@@ -1,7 +1,6 @@
 mod user;
 
 use axum::{routing::get, Router};
-use std::env;
 
 /// Health Check handler for app
 pub async fn health_check() -> impl axum::response::IntoResponse {
@@ -21,24 +20,37 @@ pub async fn fallback(uri: axum::http::Uri) -> impl axum::response::IntoResponse
     )
 }
 
-pub async fn run() -> std::io::Result<()> {
-	// build our application with a single route
+pub fn app() -> Router {
     let app = Router::new()
         .fallback(fallback) // Falls back to 404
         .route("/", get(|| async { "Hello, World!" }))
         .route("/health_check", get(health_check))
         .nest("/user", user::user_router());
 
-    // Get the host and the port from the env
+    app
+}
+
+use std::env;
+use axum::serve::Serve;
+
+pub async fn run(listener: tokio::net::TcpListener) -> Result<Serve<tokio::net::TcpListener, Router, Router>, std::io::Error>  {
+    let app = app();
+    let serve = axum::serve(listener, app);
+
+    Ok(serve)
+}
+
+pub async fn get_listener() -> Result<tokio::net::TcpListener, std::io::Error> {
+            // Get the host and the port from the env
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
 
-    // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
+    let addr = format!("{}:{}", host, port);
+    let socket_addr: std::net::SocketAddr = addr.parse().expect("Unable to parse socket address");
+
+    let listener = tokio::net::TcpListener::bind(socket_addr)
         .await
         .unwrap();
-    println!("Server is listening at {}:{}", host, port);
-    axum::serve(listener, app).await.unwrap();
 
-	Ok(())
+    Ok(listener)
 }
