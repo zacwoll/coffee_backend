@@ -26,5 +26,5 @@ async fn health_check() {
 	// Convert the body to a UTF-8 string
     let body_str = std::str::from_utf8(&body).expect("Response body is not valid UTF-8");
 
-    assert_eq!("Healthy.", body_str);
+    assert_eq!(body_str, "Healthy.");
 }

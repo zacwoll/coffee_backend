@@ -15,6 +15,7 @@ name = "coffee_backend"
 anyhow = "1.0.95"
 argon2 = { version = "0.5.3", features = ["std"] }
 axum = "0.8.1"
+config = "0.15.6"
 http-body-util = "0.1.2"
 hyper = "1.5.2"
 serde = { version = "1.0.217", features = ["derive"]}
