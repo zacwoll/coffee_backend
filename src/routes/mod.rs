@@ -4,7 +4,9 @@ pub mod user;
 mod health_check;
 mod fallback;
 
-pub fn app() -> Router {
+use super::AppState;
+
+pub fn app() -> Router<AppState> {
     let app = Router::new()
         .fallback(fallback::fallback) // Falls back to 404
         .route("/", get(|| async { "Hello, World!" }))

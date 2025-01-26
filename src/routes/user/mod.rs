@@ -1,20 +1,40 @@
 use anyhow::Context;
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
-use axum::extract::Json;
+use axum::extract::{Json, State};
 use axum::http::StatusCode;
+use axum::Form;
 use axum::{
     routing::{delete, post},
     Router,
 };
+use secrecy::zeroize::Zeroize;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use sqlx::{PgPool, Pool};
 use uuid::Uuid;
+use secrecy::{ExposeSecret, SerializableSecret};
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct SecretPassword(String);
+
+impl SerializableSecret for SecretPassword {}
+impl Zeroize for SecretPassword {
+    fn zeroize(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl ExposeSecret<str> for SecretPassword {
+    fn expose_secret(&self) -> &str {
+        &self.0
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct User {
     pub id: String,
     pub username: String,
     pub email: String,
-    // password: String,
+    pub password: SecretPassword,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -22,7 +42,7 @@ pub struct User {
 pub struct RegisterUser {
     pub username: String,
     pub email: String,
-    password: String,
+    pub password: SecretPassword,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -75,8 +95,11 @@ pub fn error_chain_fmt(
     Ok(())
 }
 
+use super::AppState;
+
 /// Returns a router with all the user functions
-pub fn user_router() -> Router {
+/// coffee_backend:port/user/here
+pub fn user_router() -> Router<AppState> {
     return Router::new()
         .route("/register", post(register_user))
         .route("/login", post(login_user))
@@ -84,10 +107,13 @@ pub fn user_router() -> Router {
 }
 
 /// Register a new user in the database
-pub async fn register_user(Json(payload): Json<RegisterUser>) -> impl axum::response::IntoResponse {
+pub async fn register_user(
+    Form(payload): Form<RegisterUser>,
+) -> impl axum::response::IntoResponse {
+
     let username = payload.username;
     // TODO: salt the password
-    // let password: String = payload.password;
+    let password = payload.password;
 
     let uuid = Uuid::new_v4();
     let id = uuid.to_string();
@@ -96,19 +122,23 @@ pub async fn register_user(Json(payload): Json<RegisterUser>) -> impl axum::resp
         id: id.clone(),
         username: username.clone(),
         email: payload.email,
+        password: password,
     };
-    println!("User {} created with id: {}", username, id);
+
+    println!("User {} created with id: {} and password: {}", username, id, new_user.password.expose_secret());
     (StatusCode::CREATED, Json(new_user))
 }
 
 /// Checks a set of credentials against the DB and if found, logs in the user (creates session token)
-pub async fn login_user(Json(payload): Json<UserCredentials>) -> impl axum::response::IntoResponse {
+pub async fn login_user(
+    Form(payload): Form<UserCredentials>,
+) -> impl axum::response::IntoResponse {
     // So first I have payload which is user credentials
     // let's check those credentials
-    let session_token = "I am a token".to_string();
+    let session_token = "I am a session token".to_string();
 
     match validate_credentials(payload).await {
-        Ok(_user_id) => {
+        Ok(user_id) => {
             // Success, create session token, store in DB, store in server-side cookies for user
             // let session_token = "I am a token";
             (StatusCode::OK, Json(session_token));

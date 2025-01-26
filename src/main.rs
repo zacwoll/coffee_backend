@@ -1,22 +1,30 @@
-use std::{env, net::SocketAddr};
+use std::{net::SocketAddr};
 
-use coffee_backend;
+use axum::{routing::connect, Router};
+use coffee_backend::{self, configuration::get_configuration, AppState};
+use sqlx::{PgPool, Connection};
+
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let app = coffee_backend::app();
+    // Panic if we can't get configuration
+    let configuration = get_configuration().expect("Failed to get configuration");
+    let connection_string = configuration.database.connection_string();
+    let pool = PgPool::connect(&connection_string)
+        .await
+        .expect("Failed to connect to postgres");
 
-        // Get the host and the port from the env
-    let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let state = AppState { pool };
 
-    let addr = format!("{}:{}", host, port);
+    let app= coffee_backend::app().with_state(state);
+
+    let addr = format!("127.0.0.1:{}", configuration.application_port);
     let socket_addr: SocketAddr = addr.parse().expect("Unable to parse socket address");
 
     let listener = tokio::net::TcpListener::bind(socket_addr)
         .await
         .unwrap();
-    println!("Server listening on {}:{}", host, port);
+    println!("Server listening on {}:{}", "127.0.0.1", configuration.application_port);
     axum::serve(listener, app).await.unwrap();
 
     Ok(())
