@@ -9,7 +9,7 @@ use sqlx::PgPool;
 /// Run the function given a tokio TCP listener
 pub async fn run(listener: tokio::net::TcpListener) -> Result<Serve<tokio::net::TcpListener, Router, Router>, std::io::Error>  {
 
-	let pool = get_pool()
+	let pool = get_db()
 		.await;
 	let state = AppState { pool };
 
@@ -22,7 +22,7 @@ pub async fn run(listener: tokio::net::TcpListener) -> Result<Serve<tokio::net::
 }
 
 /// Gets a Pool of connections from the configuration.yml database values
-pub async fn get_pool() -> PgPool {
+pub async fn get_db() -> PgPool {
 	let configuration = get_configuration().expect("Failed to get database");
 	let connection_string = configuration.database.connection_string();
 	let pool = PgPool::connect(&connection_string)

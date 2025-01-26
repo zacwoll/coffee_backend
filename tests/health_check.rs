@@ -1,16 +1,23 @@
-use coffee_backend;
-use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
+use coffee_backend::{self, AppState};
 use axum::{
 	body::Body,
 	http::{Request, StatusCode},
 };
+use http_body_util::BodyExt;
+use tower::ServiceExt; // for 'call', 'oneshot', and 'ready'
 use pretty_assertions::assert_eq;
-use http_body_util::BodyExt; // for `collect`
 
+#[path = "common.rs"]
+mod common;
 
 #[tokio::test]
 async fn health_check() {
-	let app = coffee_backend::app();
+
+	let test_pool = common::get_test_db().await.unwrap();
+
+	let state = AppState { pool: test_pool };
+
+	let app = coffee_backend::app().with_state(state);
 
 	// Using the Request builder, we call the router with the built request
 	let response = app
