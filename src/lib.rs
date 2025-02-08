@@ -7,7 +7,7 @@ pub use routes::app;
 use sqlx::PgPool;
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AppState {
     pub pool: PgPool,
 }

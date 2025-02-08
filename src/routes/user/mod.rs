@@ -2,47 +2,31 @@ use anyhow::Context;
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::extract::{Json, State};
 use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::Form;
 use axum::{
     routing::{delete, post},
     Router,
 };
-use secrecy::zeroize::Zeroize;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sqlx::{PgPool, Pool};
+use serde::{Deserialize, Serialize};
+use sqlx::types::chrono::Utc;
+use sqlx::PgPool;
 use uuid::Uuid;
-use secrecy::{ExposeSecret, SerializableSecret};
+use secrecy::{ExposeSecret, SecretString};
 
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct SecretPassword(String);
-
-impl SerializableSecret for SecretPassword {}
-impl Zeroize for SecretPassword {
-    fn zeroize(&mut self) {
-        self.0.zeroize();
-    }
-}
-
-impl ExposeSecret<str> for SecretPassword {
-    fn expose_secret(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct User {
     pub id: String,
     pub username: String,
     pub email: String,
-    pub password: SecretPassword,
+    pub password: SecretString,
 }
 
-#[derive(Serialize, Deserialize)]
-
+#[derive(Deserialize, Debug)]
 pub struct RegisterUser {
     pub username: String,
     pub email: String,
-    pub password: SecretPassword,
+    pub password: SecretString,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -98,7 +82,7 @@ pub fn error_chain_fmt(
 use super::AppState;
 
 /// Returns a router with all the user functions
-/// coffee_backend:port/user/here
+/// coffee_backend:port/user/
 pub fn user_router() -> Router<AppState> {
     return Router::new()
         .route("/register", post(register_user))
@@ -106,31 +90,87 @@ pub fn user_router() -> Router<AppState> {
         .route("/delete", delete(delete_user));
 }
 
+/// Found this on the Axum Tracing Example, it's a way to encode a 500 response to user
+fn internal_error<E>(err: E) -> (StatusCode, String)
+where
+    E: std::error::Error,
+{
+    (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+}
+
+#[tracing::instrument(
+    name = "Saving new user details in the database",
+    skip(pool)
+)]
+pub async fn insert_new_user(
+    form: RegisterUser,
+    pool: PgPool
+) -> Result<(), sqlx::Error> {
+    // Craft new User sql query
+
+    // Deserialize payload
+    let username = form.username;
+    let email = form.email;
+    // TODO: Create PHC + set up password hashing
+    let password = form.password;
+
+    // Initialize Uuid
+    let uuid = Uuid::new_v4();
+
+    // Begin Querying the Database from the pool
+    // Note: sqlx::query! throws an error when docker is not running locally
+    // sqlx tries to create a connection to your database to read the schema.
+    sqlx::query!(
+        r#"
+        INSERT INTO users (id, email, username, password_hash, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        "#,
+        &uuid,
+        &email,
+        &username,
+        &password.expose_secret(),
+        Utc::now(),
+        Utc::now(),
+    )
+    .execute(&pool)
+    .await.map_err(|e| {
+        tracing::error!("Failed to execute query: {:?}", e);
+        e	
+    })?;
+
+    tracing::info!("User {} created with id: {}", username, uuid);
+
+    Ok(())
+}
+
 /// Register a new user in the database
+// Instrument adds the parameters of the function to the traces coming out of this function.
+#[tracing::instrument(
+    name = "Registering new user",
+    skip(state, payload)
+)]
 pub async fn register_user(
+    State(state): State<AppState>,
     Form(payload): Form<RegisterUser>,
 ) -> impl axum::response::IntoResponse {
 
-    let username = payload.username;
-    // TODO: salt the password
-    let password = payload.password;
+    // Start Registering the user from the payload
+    tracing::info!("Registering '{}' '{}' as a new subscriber", payload.email, payload.username);
 
-    let uuid = Uuid::new_v4();
-    let id = uuid.to_string();
-
-    let new_user = User {
-        id: id.clone(),
-        username: username.clone(),
-        email: payload.email,
-        password: password,
-    };
-
-    println!("User {} created with id: {} and password: {}", username, id, new_user.password.expose_secret());
-    (StatusCode::CREATED, Json(new_user))
+    match insert_new_user(payload, state.pool)
+    .await
+    {
+        Ok(_result) => {
+            (StatusCode::CREATED, Json(format!("User created."))).into_response()
+        },
+        Err(_e) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(format!("Internal Server Error"))).into_response()
+        }
+    }
 }
 
 /// Checks a set of credentials against the DB and if found, logs in the user (creates session token)
-pub async fn login_user(
+pub async fn login_user (
     Form(payload): Form<UserCredentials>,
 ) -> impl axum::response::IntoResponse {
     // So first I have payload which is user credentials
@@ -138,10 +178,9 @@ pub async fn login_user(
     let session_token = "I am a session token".to_string();
 
     match validate_credentials(payload).await {
-        Ok(user_id) => {
+        Ok(_user_id) => {
             // Success, create session token, store in DB, store in server-side cookies for user
-            // let session_token = "I am a token";
-            (StatusCode::OK, Json(session_token));
+            (StatusCode::OK, Json(session_token))
         }
         Err(e) => {
             // Error, inform the user trying to log in that it failed
@@ -152,7 +191,7 @@ pub async fn login_user(
                     Json("Internal server error".to_string()),
                 ),
             };
-            error_message;
+            error_message
         }
     }
 }
